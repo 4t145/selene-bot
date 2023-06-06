@@ -1,0 +1,35 @@
+[package]
+name = "selene-bot"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "*"
+env_logger = "*"
+
+[dependencies.qqbot-sdk]
+git = "https://github.com/4t145/qqbot-sdk"
+[dependencies.tokio]
+version = "*"
+features = ["full"]
+[dependencies.influxdb]
+version = "*"
+features = ["derive"] 
+
+[dependencies.chrono]
+version = "*"
+
+[dependencies.serde]
+version = "*"
+features = ["derive"]
+
+[dependencies.time]
+version = "*"
+
+[dependencies.ron]
+version = "*"
+
+[dependencies.toml]
+version = "0.7.4"
