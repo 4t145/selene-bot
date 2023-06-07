@@ -2,13 +2,20 @@ use std::path::Path;
 
 pub use serde::{Deserialize, Serialize};
 
-macro_rules! def_config_module {
+macro_rules! def_module_config {
     ($Config:ident {
-        $($field:ident:$type:ty $(= $default_value:expr)?),* $(,)?
+        $(
+            $(#[$attr:meta])*
+            $field:ident:$type:ty $(= $default_value:expr)?
+        ),* $(,)?
     }) => {
         #[derive(Serialize, Deserialize, Debug, Clone)]
+        #[serde(default)]
         pub struct $Config {
-            $(pub $field: $type),*
+            $(
+                $(#[$attr])*
+                pub $field: $type
+            ),*
         }
         impl Default for $Config {
             fn default() -> Self {
@@ -21,50 +28,48 @@ macro_rules! def_config_module {
                 }
             }
         }
-        impl Config for $Config {
+        impl ModuleConfig for $Config {
             fn load_from_env() -> Self {
                 $Config {
-                    $($field: parse_from_toml(
-                        &std::env::var(
-                            &format!(
-                                "{}_{}",
-                                stringify!($Config).to_uppercase(),
-                                stringify!($field).to_uppercase()
-                            )
-                        ).unwrap_or_default()
-                    )),*
+                    $($field: 
+                        std::env::var(&format!(
+                            "{}_{}",
+                            stringify!($Config).to_uppercase(),
+                            stringify!($field).to_uppercase()
+                        )).as_deref().map(parse_from_toml::<$type>).unwrap_or_default()
+                    ),*
                 }
             }
         }
     };
 }
 
-def_config_module! {
+def_module_config! {
     PgConfig {
-        host: String = "localhost".to_string(),
+        host: String = "localhost",
         port: u16 = 5432_u16,
-        db: String = "selene_bot".to_string(),
-        user: String = "postgres".to_string(),
-        password: String = "postgres".to_string(),
+        db: String = "selene_bot",
+        user: String = "postgres",
+        password: String = "postgres",
     }
 }
 
 // 暂时用influxdb，以后可能换成cnosDB
-def_config_module! {
+def_module_config! {
     InfluxDbConfig {
-        url: String = "http://localhost:8086".to_string(),
-        database: String = "selene_bot".to_string(),
+        url: String = "http://localhost:8086",
+        database: String = "selene_bot",
     }
 }
 
-def_config_module! {
+def_module_config! {
     SdkConfig {
         app_id: String,
         token: String,
     }
 }
 
-trait Config {
+trait ModuleConfig {
     fn load_from_env() -> Self;
 }
 
@@ -85,12 +90,6 @@ impl BotConfig {
         toml::from_str(&content).expect("failed to parse config file")
     }
     pub fn load_from_env() -> Self {
-        <Self as Config>::load_from_env()
-    }
-}
-
-impl Config for BotConfig {
-    fn load_from_env() -> Self {
         BotConfig {
             influxdb: InfluxDbConfig::load_from_env(),
             pg: PgConfig::load_from_env(),
