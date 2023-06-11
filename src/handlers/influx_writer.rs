@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use influxdb::InfluxDbWriteable;
-use influxdb::{Client, Query, ReadQuery, Timestamp, WriteQuery};
-use qqbot_sdk::bot::{Handler, Bot, BotError};
-use qqbot_sdk::websocket::ClientEvent;
+use influxdb::{Client};
+use qqbot_sdk::bot::{Bot, BotError, Handler};
 use qqbot_sdk::model::*;
+use qqbot_sdk::websocket::ClientEvent;
 #[derive(Debug, Clone)]
 pub struct InfluxDbClient {
     pub client: Client,
@@ -66,11 +66,7 @@ impl MessageWriter {
     }
 }
 impl Handler for MessageWriter {
-    fn handle(
-        &self,
-        event: ClientEvent,
-        ctx: Arc<Bot>,
-    ) -> Result<(), BotError> {
+    fn handle(&self, event: ClientEvent, _ctx: Arc<Bot>) -> Result<(), BotError> {
         if let ClientEvent::MessageCreate(message) = event {
             let client = self.client.clone();
             tokio::spawn(async move {

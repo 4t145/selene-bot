@@ -31,7 +31,7 @@ macro_rules! def_module_config {
         impl ModuleConfig for $Config {
             fn load_from_env() -> Self {
                 $Config {
-                    $($field: 
+                    $($field:
                         std::env::var(&format!(
                             "{}_{}",
                             stringify!($Config).to_uppercase(),
@@ -69,6 +69,15 @@ def_module_config! {
     }
 }
 
+def_module_config! {
+    SurrealConfig {
+        host: String = "localhost",
+        port: u16 = 8080_u16,
+        namespace: String = "selene_bot",
+        username: String = "selene_bot",
+        password: String = "selene_bot",
+    }
+}
 trait ModuleConfig {
     fn load_from_env() -> Self;
 }
@@ -78,10 +87,12 @@ fn parse_from_toml<C: Default + for<'a> Deserialize<'a>>(s: &str) -> C {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct BotConfig {
     pub influxdb: InfluxDbConfig,
     pub pg: PgConfig,
     pub sdk: SdkConfig,
+    pub surreal: SurrealConfig,
 }
 
 impl BotConfig {
@@ -94,6 +105,7 @@ impl BotConfig {
             influxdb: InfluxDbConfig::load_from_env(),
             pg: PgConfig::load_from_env(),
             sdk: SdkConfig::load_from_env(),
+            surreal: SurrealConfig::load_from_env(),
         }
     }
 }

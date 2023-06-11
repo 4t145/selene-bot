@@ -1,0 +1,9 @@
+[surreal]
+host = "localhost"
+port = 8000
+namespace = "selene_bot"
+username = "root"
+password = "root"
+[sdk]
+app_id = "102051261"
+token = "Li4K9BKbEhTIN7qSNYcjo4fX19k3c285"
