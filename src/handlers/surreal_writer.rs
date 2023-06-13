@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::configs::SurrealConfig;
 use crate::error::*;
-use crate::models::*;
+use crate::model::*;
 use chrono::{DateTime, Utc};
 use qqbot_sdk::bot::Handler;
 use qqbot_sdk::model::*;

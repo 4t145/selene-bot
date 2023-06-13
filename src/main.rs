@@ -9,7 +9,7 @@ mod error;
 mod handlers;
 use crate::error::*;
 use configs::*;
-mod models;
+mod model;
 mod clients;
 
 #[tokio::main]

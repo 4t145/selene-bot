@@ -1,16 +1,17 @@
 use std::{str::FromStr, sync::Arc};
 
+use chrono::{Utc, DateTime};
 use qqbot_sdk::{
     bot::{Handler, MessageBuilder},
-    model::{MessageContent, MessageSegment},
+    model::*,
 };
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
     opt::auth::Root,
-    Surreal,
+    Surreal
 };
 
-use crate::{configs::BotConfig, models::UsernameHistory};
+use crate::{configs::BotConfig, model::{UsernameHistory, DeletedHistoryQuery}};
 
 pub enum Commands {
     QueryUser { username: String },
@@ -65,6 +66,17 @@ impl CommandsHandler {
             .bind(("userid", user_id))
             .await?;
         let historys = history.take::<Vec<UsernameHistory>>(0)?;
+        Ok(historys)
+    }
+    pub async fn get_deleted_history(&self, query: DeletedHistoryQuery) -> crate::Result<Vec<(DateTime<Utc>, String)>> {
+        let db = &self.surreal;
+        let mut history = db
+            .query("SELECT  FROM deleted_history WHERE message.author.id=$userid ORDER BY time DESC SKIP $skip LIMIT $limit")
+            .bind(("userid", query.userid))
+            .bind(("skip", query.skip))
+            .bind(("limit", query.limit))
+            .await?;
+        let historys = history.take::<Vec<(DateTime<Utc>, String)>>(0)?;
         Ok(historys)
     }
     // pub async fn get_userid_by_name(&self, username: &str) -> crate::Result<Option<u64>> {
