@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use chrono::{Utc, DateTime};
+use clap::Parser;
 use qqbot_sdk::{
     bot::{Handler, MessageBuilder},
     model::*,
@@ -11,7 +12,7 @@ use surrealdb::{
     Surreal
 };
 
-use crate::{configs::BotConfig, model::{UsernameHistory, DeletedHistoryQuery}};
+use crate::{configs::BotConfig, model::*};
 
 pub enum Commands {
     QueryUser { username: String },
@@ -53,6 +54,12 @@ impl std::ops::Deref for CommandsHandler {
 pub struct CommandsHandlerInner {
     pub surreal: Surreal<Client>,
 }
+
+pub trait CommandExecutable {
+    type Output;
+    async fn execute_on(&self, executor: &CommandsHandlerInner) -> crate::Result<Self::Output>;
+}
+
 impl CommandsHandler {
     pub async fn init(config: &BotConfig) -> crate::Result<Self> {
         CommandsHandlerInner::init(config)
@@ -68,11 +75,11 @@ impl CommandsHandler {
         let historys = history.take::<Vec<UsernameHistory>>(0)?;
         Ok(historys)
     }
-    pub async fn get_deleted_history(&self, query: DeletedHistoryQuery) -> crate::Result<Vec<(DateTime<Utc>, String)>> {
+    pub async fn get_deleted_history(&self, query: command::DeletedHistoryQueryCmd) -> crate::Result<Vec<(DateTime<Utc>, String)>> {
         let db = &self.surreal;
         let mut history = db
             .query("SELECT  FROM deleted_history WHERE message.author.id=$userid ORDER BY time DESC SKIP $skip LIMIT $limit")
-            .bind(("userid", query.userid))
+            .bind(("userid", query.user))
             .bind(("skip", query.skip))
             .bind(("limit", query.limit))
             .await?;
@@ -116,56 +123,73 @@ impl CommandsHandlerInner {
 }
 
 impl CommandsHandler {
-    async fn handler_command(&self, cmd: MessageContent) -> Option<String> {
+    async fn handler_command(&self, cmd: MessageContent) -> String {
         // first element is at me
-        let mut segs = cmd.segments.iter().skip(1);
-        if let Some(MessageSegment::Text(cmd)) = segs.next() {
-            let cmd = cmd.trim_start();
-            match cmd.split(' ').next() {
-                Some("这个人也帮我查一下") | Some("/query_user") => {
-                    let Some(MessageSegment::At ( user_id ) ) = segs.next() else {
-                        return Some("expect a user as input".to_string()) 
-                    };
-                    let history = self.get_user_history(*user_id).await;
-                    match history {
-                        Ok(history) => {
-                            let mut reply = String::new();
-                            for h in history {
-                                reply.push_str(&format!(
-                                    "username: {}, time: {}\n",
-                                    h.username, h.time
-                                ));
-                            }
-                            Some(reply)
-                        }
-                        Err(e) => Some(e.to_string()),
-                    }
-                }
-                Some("/delete_history") => {
-                    let Some(MessageSegment::At ( user_id ) ) = segs.next() else {
-                        return Some("expect a user as input".to_string()) 
-                    };
-                    let history = self.get_user_history(*user_id).await;
-                    match history {
-                        Ok(history) => {
-                            let mut reply = String::new();
-                            for h in history {
-                                reply.push_str(&format!(
-                                    "username: {}, time: {}\n",
-                                    h.username, h.time
-                                ));
-                            }
-                            Some(reply)
-                        }
-                        Err(e) => Some(e.to_string()),
-                    }
-                }
-                Some("/Hello") => Some("Hello, I'm Selene".to_string()),
+        let mut segs = Vec::new();
+        let mut iter = cmd.segments.iter();
+        let Some(MessageSegment::At(_me)) = iter.next() else {
+            return String::from("parse error");
+        };
+        segs.push("@<this—bot>".to_owned());
+        for seg in iter {
+            match seg {
+                MessageSegment::Text(s) => {
+                    segs.extend(s.split_whitespace().map(String::from));
+                },
+                MessageSegment::At(user) => {
+                    segs.push(user.to_string())
+                },
+                MessageSegment::AtAll => {
+                    segs.push("all".to_string())
+                },
+                MessageSegment::Channel(id) => {
+                    segs.push(id.to_string())
+                },
+                _ => {
 
-                _ => None,
+                },
             }
-        } else {
-            None
+        }
+        dbg!(&segs);
+        use crate::cmd::*;
+        match crate::cmd::Command::try_parse_from(segs) {
+            Ok(command) => {
+                match command {
+                    Command::DeletedHistoryQuery(q) => {
+                        match q.execute_on(self).await {
+                            Ok(hs) => {
+                                let mut reply = MessageContent::new();
+                                reply.text(format!("{message_id_title:20}|{time_title}\n", message_id_title="message_id", time_title="channel_id"));
+                                for DeletedHistory { message_id, channel_id } in hs {
+                                    reply.text(format!("{message_id:20}|{channel_id}\n"));
+                                }
+                                reply.to_string()
+                            },
+                            Err(e) => {
+                                e.to_string()
+                            },
+                        }
+                    }
+                    Command::UsernameHistoryQuery(q) => {
+                        match q.execute_on(self).await {
+                            Ok(hs) => {
+                                let mut reply = MessageContent::new();
+                                reply.text(format!("{username_title:20}|{time_title}\n", username_title="username", time_title="record time"));
+                                for UsernameHistory { username, time, .. } in hs {
+                                    reply.text(format!("{username:20}|{time}\n"));
+                                }
+                                reply.to_string()
+                            },
+                            Err(e) => {
+                                e.to_string()
+                            },
+                        }
+                    },
+                }
+            },
+            Err(e) => {
+                e.to_string()
+            },
         }
     }
 }
@@ -182,9 +206,7 @@ impl Handler for CommandsHandler {
                 let handler = self.clone();
                 tokio::spawn(async move {
                     let segs = MessageContent::from_str(&msg.content)?;
-                    let Some(reply) = handler.handler_command(segs).await else {
-                        return Ok(());
-                    };
+                    let reply = handler.handler_command(segs).await;
                     ctx.send_message(
                         msg.channel_id,
                         &MessageBuilder::default()

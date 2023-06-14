@@ -1,3 +1,4 @@
+#![feature(async_fn_in_trait)]
 use qqbot_sdk::{bot::*, http::api::*, websocket::*};
 
 use crate::handlers::{
@@ -11,6 +12,7 @@ use crate::error::*;
 use configs::*;
 mod model;
 mod clients;
+mod cmd;
 
 #[tokio::main]
 async fn main() -> Result<()> {

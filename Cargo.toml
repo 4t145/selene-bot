@@ -10,6 +10,7 @@ log = "*"
 env_logger = "*"
 surrealdb = "1.0.0-beta.9"
 lettre = "0.10.4"
+clap = {version = "4.3.3", features = ["derive"]}
 
 [dependencies.qqbot-sdk]
 git = "https://github.com/4t145/qqbot-sdk"
