@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use influxdb::Client;
 use influxdb::InfluxDbWriteable;
-use influxdb::{Client};
-use qqbot_sdk::bot::{Bot, BotError, Handler};
+use qqbot_sdk::bot::Bot;
+use qqbot_sdk::event::handler::EventHandler;
+use qqbot_sdk::event::model::Event;
 use qqbot_sdk::model::*;
-use qqbot_sdk::websocket::ClientEvent;
 #[derive(Debug, Clone)]
 pub struct InfluxDbClient {
     pub client: Client,
@@ -65,14 +66,17 @@ impl MessageWriter {
         MessageWriter { client }
     }
 }
-impl Handler for MessageWriter {
-    fn handle(&self, event: ClientEvent, _ctx: Arc<Bot>) -> Result<(), BotError> {
-        if let ClientEvent::MessageCreate(message) = event {
+impl EventHandler for MessageWriter {
+    async fn handle(&self, event: Event, _bot: &Bot) -> Result<(), qqbot_sdk::Error> {
+        if let Event::MessageCreate(message) = event {
             let client = self.client.clone();
-            tokio::spawn(async move {
-                client.write_message(&message).await.unwrap();
-            });
+            client.write_message(&message).await.map_err(|e| {
+                qqbot_sdk::Error::unexpected(format!("write message to influxdb error: {:?}", e))
+            })?;
         }
         Ok(())
+    }
+    fn would_handle(&self, event: &Event, bot: &Bot<()>) -> bool {
+        matches!(event, Event::MessageCreate(_))
     }
 }

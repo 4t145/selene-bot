@@ -65,7 +65,7 @@ def_module_config! {
 def_module_config! {
     SdkConfig {
         app_id: String,
-        token: String,
+        secret: String,
     }
 }
 

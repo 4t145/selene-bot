@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use qqbot_sdk::bot::BotError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -33,8 +32,8 @@ impl From<surrealdb::Error> for Error {
     }
 }
 
-impl From<BotError> for Error {
-    fn from(val: BotError) -> Self {
-        Error::External(Box::new(val))
+impl From<qqbot_sdk::Error> for Error {
+    fn from(val: qqbot_sdk::Error) -> Self {
+        todo!()
     }
 }

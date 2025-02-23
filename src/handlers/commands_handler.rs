@@ -1,15 +1,16 @@
 use std::{str::FromStr, sync::Arc};
 
-use chrono::{Utc, DateTime};
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use qqbot_sdk::{
-    bot::{Handler, MessageBuilder},
+    bot::message::MessageBuilder,
+    event::{handler::EventHandler, model::Event},
     model::*,
 };
 use surrealdb::{
+    Surreal,
     engine::remote::ws::{Client, Ws},
     opt::auth::Root,
-    Surreal
 };
 
 use crate::{configs::BotConfig, model::*};
@@ -75,7 +76,10 @@ impl CommandsHandler {
         let historys = history.take::<Vec<UsernameHistory>>(0)?;
         Ok(historys)
     }
-    pub async fn get_deleted_history(&self, query: command::DeletedHistoryQueryCmd) -> crate::Result<Vec<(DateTime<Utc>, String)>> {
+    pub async fn get_deleted_history(
+        &self,
+        query: command::DeletedHistoryQueryCmd,
+    ) -> crate::Result<Vec<(DateTime<Utc>, String)>> {
         let db = &self.surreal;
         let mut history = db
             .query("SELECT  FROM deleted_history WHERE message.author.id=$userid ORDER BY time DESC SKIP $skip LIMIT $limit")
@@ -135,89 +139,85 @@ impl CommandsHandler {
             match seg {
                 MessageSegment::Text(s) => {
                     segs.extend(s.split_whitespace().map(String::from));
-                },
-                MessageSegment::At(user) => {
-                    segs.push(user.to_string())
-                },
-                MessageSegment::AtAll => {
-                    segs.push("all".to_string())
-                },
-                MessageSegment::Channel(id) => {
-                    segs.push(id.to_string())
-                },
-                _ => {
-
-                },
+                }
+                MessageSegment::At(user) => segs.push(user.to_string()),
+                MessageSegment::AtAll => segs.push("all".to_string()),
+                MessageSegment::Channel(id) => segs.push(id.to_string()),
+                _ => {}
             }
         }
-        dbg!(&segs);
         use crate::cmd::*;
         match crate::cmd::Command::try_parse_from(segs) {
-            Ok(command) => {
-                match command {
-                    Command::DeletedHistoryQuery(q) => {
-                        match q.execute_on(self).await {
-                            Ok(hs) => {
-                                let mut reply = MessageContent::new();
-                                reply.text(format!("{message_id_title:20}|{time_title}\n", message_id_title="message_id", time_title="channel_id"));
-                                for DeletedHistory { message_id, channel_id } in hs {
-                                    reply.text(format!("{message_id:20}|{channel_id}\n"));
-                                }
-                                reply.to_string()
-                            },
-                            Err(e) => {
-                                e.to_string()
-                            },
+            Ok(command) => match command {
+                Command::DeletedHistoryQuery(q) => match q.execute_on(self).await {
+                    Ok(hs) => {
+                        let mut reply = MessageContent::new();
+                        reply.text(format!(
+                            "{message_id_title:20}|{time_title}\n",
+                            message_id_title = "message_id",
+                            time_title = "channel_id"
+                        ));
+                        for DeletedHistory {
+                            message_id,
+                            channel_id,
+                        } in hs
+                        {
+                            reply.text(format!("{message_id:20}|{channel_id}\n"));
                         }
+                        reply.to_string()
                     }
-                    Command::UsernameHistoryQuery(q) => {
-                        match q.execute_on(self).await {
-                            Ok(hs) => {
-                                let mut reply = MessageContent::new();
-                                reply.text(format!("{username_title:20}|{time_title}\n", username_title="username", time_title="record time"));
-                                for UsernameHistory { username, time, .. } in hs {
-                                    reply.text(format!("{username:20}|{time}\n"));
-                                }
-                                reply.to_string()
-                            },
-                            Err(e) => {
-                                e.to_string()
-                            },
+                    Err(e) => e.to_string(),
+                },
+                Command::UsernameHistoryQuery(q) => match q.execute_on(self).await {
+                    Ok(hs) => {
+                        let mut reply = MessageContent::new();
+                        reply.text(format!(
+                            "{username_title:20}|{time_title}\n",
+                            username_title = "username",
+                            time_title = "record time"
+                        ));
+                        for UsernameHistory { username, time, .. } in hs {
+                            reply.text(format!("{username:20}|{time}\n"));
                         }
-                    },
-                }
+                        reply.to_string()
+                    }
+                    Err(e) => e.to_string(),
+                },
             },
-            Err(e) => {
-                e.to_string()
-            },
+            Err(e) => e.to_string(),
         }
     }
 }
 
-impl Handler for CommandsHandler {
-    fn handle(
+impl EventHandler for CommandsHandler {
+    fn would_handle(&self, event: &Event, bot: &qqbot_sdk::bot::Bot<()>) -> bool {
+        if let Event::AtMessageCreate(msg) = event {
+            msg.content.starts_with("@<this—bot>")
+        } else {
+            false
+        }
+    }
+    async fn handle(
         &self,
-        event: qqbot_sdk::websocket::ClientEvent,
-        ctx: std::sync::Arc<qqbot_sdk::bot::Bot>,
-    ) -> Result<(), qqbot_sdk::bot::BotError> {
+        event: Event,
+        bot: &qqbot_sdk::bot::Bot,
+    ) -> Result<(), qqbot_sdk::Error> {
         #[allow(clippy::single_match)]
         match event {
-            qqbot_sdk::websocket::ClientEvent::AtMessageCreate(msg) => {
+            Event::AtMessageCreate(msg) => {
                 let handler = self.clone();
-                tokio::spawn(async move {
-                    let segs = MessageContent::from_str(&msg.content)?;
-                    let reply = handler.handler_command(segs).await;
-                    ctx.send_message(
-                        msg.channel_id,
-                        &MessageBuilder::default()
-                            .content(reply.as_str())
-                            .reply_to(msg.as_ref())
-                            .build()?,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                    Ok::<_, String>(())
-                });
+
+                let segs = MessageContent::from_str(&msg.content)
+                    .map_err(|_| qqbot_sdk::Error::unexpected("parse message content error"))?;
+                let reply = handler.handler_command(segs).await;
+                bot.send_message(
+                    msg.channel_id,
+                    &MessageBuilder::default()
+                        .content(reply.as_str())
+                        .reply_to(msg.as_ref())
+                        .build(),
+                )
+                .await?;
             }
             _ => {}
         }

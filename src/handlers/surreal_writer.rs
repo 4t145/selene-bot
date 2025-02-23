@@ -4,9 +4,10 @@ use crate::configs::SurrealConfig;
 use crate::error::*;
 use crate::model::*;
 use chrono::{DateTime, Utc};
-use qqbot_sdk::bot::Handler;
+use qqbot_sdk::bot::Bot;
+use qqbot_sdk::event::handler::EventHandler;
+use qqbot_sdk::event::model::Event;
 use qqbot_sdk::model::*;
-use qqbot_sdk::websocket::ClientEvent;
 
 use serde::{Deserialize, Serialize};
 use surrealdb::engine::remote::ws::{Client, Ws};
@@ -87,24 +88,29 @@ pub struct QueryUsernameResult {
     pub time: DateTime<Utc>,
 }
 
-impl Handler for SurrealWriter {
-    fn handle(
+impl EventHandler for SurrealWriter {
+    fn would_handle(&self, event: &Event, bot: &Bot) -> bool {
+        match event {
+            Event::MessageCreate(_) => true,
+            Event::PublicMessageDelete(_) => true,
+            _ => false,
+        }
+    }
+    async fn handle(
         &self,
-        event: qqbot_sdk::websocket::ClientEvent,
-        _ctx: std::sync::Arc<qqbot_sdk::bot::Bot>,
-    ) -> std::result::Result<(), qqbot_sdk::bot::BotError> {
+        event: Event,
+        _bot: &Bot,
+    ) -> std::result::Result<(), qqbot_sdk::Error> {
         #[allow(clippy::single_match)]
         match event {
-            ClientEvent::MessageCreate(message) => {
+            Event::MessageCreate(message) => {
                 let db = self.db.clone();
-                tokio::spawn(async move {
-                    let message = message.as_ref();
-                    let _: Empty = db
+                    let _: Option<Empty> = db
                         .create(("message", &message.id.to_string()))
                         .content(message)
                         .await
                         .unwrap_or_default();
-                    let userid = &message.author.id;
+                    let userid = message.author.id;
                     let username = &message.author.username;
                     let avatar = &message.author.avatar;
                     // query recent record
@@ -117,8 +123,8 @@ impl Handler for SurrealWriter {
                         };
                         dbg!(update);
                         if update {
-                            let _: Empty = db.create("username_history").content(&UsernameHistory {
-                                userid: *userid as i64,
+                            let _: Option<Empty> = db.create("username_history").content(&UsernameHistory {
+                                userid: userid as i64,
                                 username: username.clone(),
                                 time: message.timestamp,
                             }).await.unwrap_or_default();
@@ -132,21 +138,18 @@ impl Handler for SurrealWriter {
                             false
                         };
                         if update {
-                            let _: Empty = db.create("useravatar_history").content(&UserAvatarHistory {
-                                userid: *userid,
+                            let _: Option<Empty> = db.create("useravatar_history").content(&UserAvatarHistory {
+                                userid: userid,
                                 avatar: avatar.as_deref().unwrap_or_default().into(),
                                 time: message.timestamp,
                             }).await.unwrap_or_default();
                         }
-
                     }
-                    Ok::<(), String>(())
-                });
             }
-            ClientEvent::PublicMessageDelete(delete) => {
+            Event::PublicMessageDelete(delete) => {
                 let db = self.db.clone();
                 tokio::spawn(async move {
-                    let _: Empty = db
+                    let _: Option<Empty> = db
                         .create(("message_delete", &delete.message.id.to_string()))
                         .content(&delete.as_ref().clone())
                         .await

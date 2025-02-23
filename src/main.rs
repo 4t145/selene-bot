@@ -1,48 +1,44 @@
-#![feature(async_fn_in_trait)]
-use qqbot_sdk::{bot::*, http::api::*, websocket::*};
+use qqbot_sdk::bot;
+use rig::agent::Agent;
 
-use crate::handlers::{
-    commands_handler::CommandsHandler,
-    surreal_writer::SurrealWriter,
-};
+use crate::handlers::{commands_handler::CommandsHandler, surreal_writer::SurrealWriter};
 mod configs;
 mod error;
 mod handlers;
 use crate::error::*;
 use configs::*;
-mod model;
 mod clients;
 mod cmd;
+mod model;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    let bot_config = BotConfig::load_from_file(config_path());
+    let bot_config = crate::BotConfig::load_from_file(config_path());
     // 启动webapi client
-    let auth = Authority::Bot {
-        app_id: &bot_config.sdk.app_id,
-        token: &bot_config.sdk.token,
-    };
+
     let surreal_writer = SurrealWriter::init(&bot_config.surreal).await?;
     let commands_handler = CommandsHandler::init(&bot_config).await?;
-    let bot = BotBuilder::default()
-        .auth(auth)
-        .intents(
-            Intends::PUBLIC_GUILD_MESSAGES
-                | Intends::GUILD_MESSAGE_REACTIONS
-                | Intends::GUILD_MESSAGES,
-        )
-        .start()
-        .await
-        .unwrap();
+    let bot = bot::Bot::new(bot::BotConfig {
+        app_id: bot_config.sdk.app_id.clone(),
+        secret: bot_config.sdk.secret.clone(),
+        base_url: qqbot_sdk::consts::SANDBOX_DOMAIN.to_string(),
+    });
     log::info!("bot: {:?}", bot.about_me().await?);
     bot.fetch_my_guilds().await?;
     log::info!("guilds count: {:?}", bot.cache().get_guilds_count().await);
-    bot.register_handler("surreal::writter", surreal_writer)
+    bot.event_service()
+        .spawn_handler("surreal::writter", surreal_writer)
         .await;
-    bot.register_handler("commands_handler", commands_handler)
+    bot.event_service()
+        .spawn_handler("commands_handler", commands_handler)
         .await;
-
+    use rig::{
+        agent::{Agent, AgentBuilder},
+        providers::deepseek::Client,
+    };
+    let model = Client::new("test").completion_model("r1");
+    let agent = AgentBuilder::new(model).build();
     // wait for ctrl-c
     // bot.await;
     // wait for ctrl-c
@@ -50,3 +46,5 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+use rig::tool::Tool;
